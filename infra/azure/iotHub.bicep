@@ -18,7 +18,7 @@ param iotHubName string
   'S2'
   'S3'
 ])
-param iotHubSkuName string = 'F1'
+param iotHubSkuName string
 
 @description('Number of IoT Hub units to provision.')
 @minValue(1)

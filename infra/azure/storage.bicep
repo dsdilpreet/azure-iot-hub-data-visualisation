@@ -31,7 +31,7 @@ param storageSku string = 'Standard_LRS'
 param storageKind string = 'StorageV2'
 
 @description('Name of the blob container used by IoT Hub routing.')
-param storageContainerName string = 'iot-messages'
+param storageContainerName string
 
 var storageAccountConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
 
