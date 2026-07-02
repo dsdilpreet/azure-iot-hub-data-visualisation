@@ -1,3 +1,5 @@
+#nullable enable
+
 #r "nuget: Azure.Storage.Blobs, 12.19.1"
 #r "nuget: DotNetEnv, 3.2.0"
 
@@ -9,7 +11,7 @@ using System.Text.Json.Serialization;
 
 string? connectionString = null;
 string? containerName = null;
-string? baseFolder = null;
+string? iotHubName = null;
 string? stateFilePath = null;
 
 var indentedJson = new JsonSerializerOptions
@@ -22,8 +24,8 @@ try
     Env.Load();
 
     connectionString = Env.GetString("AZURE_STORAGE_CONNECTION_STRING");
-    containerName = Env.GetString("AZURE_CONTAINER_NAME");
-    baseFolder = Env.GetString("AZURE_BASE_FOLDER");
+    containerName = Env.GetString("AZURE_STORAGE_CONTAINER_NAME");
+    iotHubName = Env.GetString("AZURE_IOT_HUB_NAME");
     stateFilePath = Env.GetString("STATE_FILE_PATH", "last_run_state.txt");
 
     if (string.IsNullOrWhiteSpace(connectionString))
@@ -33,17 +35,17 @@ try
 
     if (string.IsNullOrWhiteSpace(containerName))
     {
-        throw new InvalidOperationException("AZURE_CONTAINER_NAME is not set in .env file");
+        throw new InvalidOperationException("AZURE_STORAGE_CONTAINER_NAME is not set in .env file");
     }
 
-    if (string.IsNullOrWhiteSpace(baseFolder))
+    if (string.IsNullOrWhiteSpace(iotHubName))
     {
-        throw new InvalidOperationException("AZURE_BASE_FOLDER is not set in .env file");
+        throw new InvalidOperationException("AZURE_IOT_HUB_NAME is not set in .env file");
     }
 
     Console.WriteLine("Configuration loaded:");
     Console.WriteLine($"  Container: {containerName}");
-    Console.WriteLine($"  Base Folder: {baseFolder}");
+    Console.WriteLine($"  IoT Hub Name: {iotHubName}");
     Console.WriteLine($"  State File: {stateFilePath}");
 
     var stateDirectory = Path.GetDirectoryName(stateFilePath);
@@ -68,7 +70,7 @@ try
     var newCount = 0;
     var errorCount = 0;
 
-    var blobs = containerClient.GetBlobsAsync(prefix: $"{baseFolder}/");
+    var blobs = containerClient.GetBlobsAsync(prefix: $"{iotHubName}/");
     await foreach (var blob in blobs)
     {
         var success = false;
@@ -78,7 +80,7 @@ try
             continue;
         }
 
-        var blobTime = ExtractDateTimeFromPath(blob.Name, baseFolder);
+        var blobTime = ExtractDateTimeFromPath(blob.Name, iotHubName);
         if (blobTime == DateTime.MinValue)
         {
             Console.WriteLine($"Could not get date from: {blob.Name}");
