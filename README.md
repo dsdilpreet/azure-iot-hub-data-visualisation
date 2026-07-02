@@ -36,7 +36,6 @@ Create a file named .env in repo root with:
 AZURE_STORAGE_CONNECTION_STRING=<your-storage-connection-string>
 AZURE_STORAGE_CONTAINER_NAME=messages
 AZURE_IOT_HUB_NAME=<your-iot-hub-name>
-STATE_FILE_PATH=.state/last_run_state.txt
 ```
 
 Notes:

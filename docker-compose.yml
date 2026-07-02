@@ -11,6 +11,7 @@ services:
       POSTGRES_PASSWORD: postgres
     volumes:
       - timescaledb_data:/var/lib/postgresql
+      - ./db/init:/docker-entrypoint-initdb.d:ro
 
 volumes:
   timescaledb_data:
