@@ -40,8 +40,8 @@ AZURE_IOT_HUB_NAME=<your-iot-hub-name>
 
 Notes:
 
-- AZURE_CONTAINER_NAME must match the routed storage container.
-- AZURE_BASE_FOLDER should match the first segment used by IoT Hub routing file format.
+- AZURE_STORAGE_CONTAINER_NAME must match the routed storage container.
+- AZURE_IOT_HUB_NAME must match the `{iothub}` segment used by the IoT Hub routing file format.
 - STATE_FILE_PATH is optional. If omitted, the script uses last_run_state.txt in repo root.
 
 ## Run the script
