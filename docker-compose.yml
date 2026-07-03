@@ -6,7 +6,7 @@ services:
     ports:
       - '5432:5432'
     environment:
-      POSTGRES_DB: iot_messages
+      POSTGRES_DB: observability
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     volumes:
