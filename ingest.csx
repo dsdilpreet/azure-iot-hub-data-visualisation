@@ -157,7 +157,7 @@ try
             {
                 try
                 {
-                    var message = JsonSerializer.Deserialize<IoTHubMessage>(line);
+                    var message = JsonSerializer.Deserialize<IotHubMessage>(line);
                     if (message is null)
                     {
                         continue;
@@ -288,15 +288,15 @@ static DateTime ExtractDateTimeFromPath(string path, string folderPrefix)
     return DateTime.MinValue;
 }
 
-static DateTime? GetIoTHubCreationTime(IoTHubMessage message)
+static DateTime? GetIotHubCreationTime(IotHubMessage message)
 {
-    if (string.IsNullOrWhiteSpace(message.Properties?.IoTHubCreationTimeUtc))
+    if (string.IsNullOrWhiteSpace(message.Properties?.IotHubCreationTimeUtc))
     {
         return null;
     }
 
     if (DateTime.TryParse(
-        message.Properties.IoTHubCreationTimeUtc,
+        message.Properties.IotHubCreationTimeUtc,
         CultureInfo.InvariantCulture,
         DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
         out var creationTime))
@@ -307,7 +307,7 @@ static DateTime? GetIoTHubCreationTime(IoTHubMessage message)
     return null;
 }
 
-public class IoTHubMessage
+public class IotHubMessage
 {
     public DateTime EnqueuedTimeUtc { get; set; }
     public Properties? Properties { get; set; }
@@ -318,10 +318,10 @@ public class IoTHubMessage
 public class Properties
 {
     [JsonPropertyName("iothub-message-schema")]
-    public string? IoTHubMessageSchema { get; set; }
+    public string? IotHubMessageSchema { get; set; }
 
     [JsonPropertyName("iothub-creation-time-utc")]
-    public string? IoTHubCreationTimeUtc { get; set; }
+    public string? IotHubCreationTimeUtc { get; set; }
 }
 
 public class SystemProperties
