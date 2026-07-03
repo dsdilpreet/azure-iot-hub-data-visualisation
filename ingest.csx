@@ -258,7 +258,7 @@ static DateTime GetLastRunTime(string path)
         }
     }
 
-    return DateTime.UtcNow.AddYears(-1);
+    return DateTime.UtcNow.AddDays(-7);
 }
 
 static DateTime ExtractDateTimeFromPath(string path, string folderPrefix)
