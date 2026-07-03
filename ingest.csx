@@ -345,6 +345,12 @@ static object GetJsonOrDbNull(JsonElement element)
 
 static bool TryGetPropertyIgnoreCase(JsonElement jsonObject, string propertyName, out JsonElement value)
 {
+    if (jsonObject.ValueKind != JsonValueKind.Object)
+    {
+        value = default;
+        return false;
+    }
+
     foreach (var property in jsonObject.EnumerateObject())
     {
         if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
