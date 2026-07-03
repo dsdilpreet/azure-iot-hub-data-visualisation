@@ -99,6 +99,7 @@ try
         INSERT INTO iot_messages (
             enqueued_time,
             iothub_creation_time,
+            iothub_message_schema,
             connection_device_id,
             body,
             properties,
@@ -107,6 +108,7 @@ try
         VALUES (
             @enqueued_time,
             @iothub_creation_time,
+            @iothub_message_schema,
             @connection_device_id,
             @body,
             @properties,
@@ -116,6 +118,7 @@ try
     await using var insertCommand = new NpgsqlCommand(insertSql, dbConnection);
     insertCommand.Parameters.Add(new NpgsqlParameter("enqueued_time", NpgsqlDbType.TimestampTz));
     insertCommand.Parameters.Add(new NpgsqlParameter("iothub_creation_time", NpgsqlDbType.TimestampTz));
+    insertCommand.Parameters.Add(new NpgsqlParameter("iothub_message_schema", NpgsqlDbType.Text));
     insertCommand.Parameters.Add(new NpgsqlParameter("connection_device_id", NpgsqlDbType.Text));
     insertCommand.Parameters.Add(new NpgsqlParameter("body", NpgsqlDbType.Jsonb));
     insertCommand.Parameters.Add(new NpgsqlParameter("properties", NpgsqlDbType.Jsonb));
@@ -168,7 +171,8 @@ try
                         var enqueuedTime = DateTime.SpecifyKind(message.EnqueuedTimeUtc, DateTimeKind.Utc);
 
                         insertCommand.Parameters["enqueued_time"].Value = enqueuedTime;
-                        insertCommand.Parameters["iothub_creation_time"].Value = GetIoTHubCreationTime(message) ?? (object)DBNull.Value;
+                        insertCommand.Parameters["iothub_creation_time"].Value = GetIotHubCreationTime(message) ?? (object)DBNull.Value;
+                        insertCommand.Parameters["iothub_message_schema"].Value = message.Properties?.IotHubMessageSchema ?? (object)DBNull.Value;
                         insertCommand.Parameters["connection_device_id"].Value = message.SystemProperties?.ConnectionDeviceId ?? (object)DBNull.Value;
                         insertCommand.Parameters["body"].Value = message.Body.GetRawText();
                         insertCommand.Parameters["properties"].Value = message.Properties is null
