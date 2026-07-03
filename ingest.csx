@@ -2,9 +2,12 @@
 
 #r "nuget: Azure.Storage.Blobs, 12.19.1"
 #r "nuget: DotNetEnv, 3.2.0"
+#r "nuget: Npgsql, 8.0.4"
 
 using Azure.Storage.Blobs;
 using DotNetEnv;
+using Npgsql;
+using NpgsqlTypes;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -13,11 +16,11 @@ string? connectionString = null;
 string? containerName = null;
 string? iotHubName = null;
 string? stateFilePath = null;
-
-var indentedJson = new JsonSerializerOptions
-{
-    WriteIndented = true
-};
+string? dbHost = null;
+int dbPort = 5432;
+string? dbName = null;
+string? dbUser = null;
+string? dbPassword = null;
 
 try
 {
@@ -27,6 +30,11 @@ try
     containerName = Env.GetString("AZURE_STORAGE_CONTAINER_NAME");
     iotHubName = Env.GetString("AZURE_IOT_HUB_NAME");
     stateFilePath = Env.GetString("STATE_FILE_PATH", "last_run_state.txt");
+    dbHost = Env.GetString("DB_HOST", "localhost");
+    dbPort = int.TryParse(Env.GetString("DB_PORT", "5432"), out var parsedPort) ? parsedPort : 5432;
+    dbName = Env.GetString("DB_NAME", "observability");
+    dbUser = Env.GetString("DB_USER", "postgres");
+    dbPassword = Env.GetString("DB_PASSWORD", "postgres");
 
     if (string.IsNullOrWhiteSpace(connectionString))
     {
@@ -47,6 +55,7 @@ try
     Console.WriteLine($"  Container: {containerName}");
     Console.WriteLine($"  IoT Hub Name: {iotHubName}");
     Console.WriteLine($"  State File: {stateFilePath}");
+    Console.WriteLine($"  Database: {dbHost}:{dbPort}/{dbName}");
 
     var stateDirectory = Path.GetDirectoryName(stateFilePath);
     if (!string.IsNullOrWhiteSpace(stateDirectory) && !Directory.Exists(stateDirectory))
@@ -69,6 +78,48 @@ try
     var maxBlobTime = lastRunTime;
     var newCount = 0;
     var errorCount = 0;
+    var insertedCount = 0;
+    var dbErrorCount = 0;
+
+    var dbConnectionString = new NpgsqlConnectionStringBuilder
+    {
+        Host = dbHost,
+        Port = dbPort,
+        Database = dbName,
+        Username = dbUser,
+        Password = dbPassword,
+        SslMode = SslMode.Disable
+    }.ConnectionString;
+
+    await using var dbConnection = new NpgsqlConnection(dbConnectionString);
+    await dbConnection.OpenAsync();
+    Console.WriteLine("Connected to PostgreSQL.");
+
+    const string insertSql = @"
+        INSERT INTO iot_messages (
+            enqueued_time,
+            iothub_creation_time,
+            connection_device_id,
+            body,
+            properties,
+            system_properties
+        )
+        VALUES (
+            @enqueued_time,
+            @iothub_creation_time,
+            @connection_device_id,
+            @body,
+            @properties,
+            @system_properties
+        );";
+
+    await using var insertCommand = new NpgsqlCommand(insertSql, dbConnection);
+    insertCommand.Parameters.Add(new NpgsqlParameter("enqueued_time", NpgsqlDbType.TimestampTz));
+    insertCommand.Parameters.Add(new NpgsqlParameter("iothub_creation_time", NpgsqlDbType.TimestampTz));
+    insertCommand.Parameters.Add(new NpgsqlParameter("connection_device_id", NpgsqlDbType.Text));
+    insertCommand.Parameters.Add(new NpgsqlParameter("body", NpgsqlDbType.Jsonb));
+    insertCommand.Parameters.Add(new NpgsqlParameter("properties", NpgsqlDbType.Jsonb));
+    insertCommand.Parameters.Add(new NpgsqlParameter("system_properties", NpgsqlDbType.Jsonb));
 
     var blobs = containerClient.GetBlobsAsync(prefix: $"{iotHubName}/");
     await foreach (var blob in blobs)
@@ -112,16 +163,35 @@ try
                         continue;
                     }
 
-                    Console.WriteLine($"Name: {blob.Name}, time {blobTime:yyyy-MM-dd HH:mm:ss} UTC");
-                    Console.WriteLine($"Enqueued Time: {message.EnqueuedTimeUtc}");
-                    Console.WriteLine($"Schema: {message.Properties?.IoTHubMessageSchema ?? "N/A"}");
-                    Console.WriteLine($"Creation Time: {message.Properties?.IoTHubCreationTimeUtc ?? "N/A"}");
-                    Console.WriteLine($"Device ID: {message.SystemProperties?.ConnectionDeviceId ?? "N/A"}");
-                    Console.WriteLine($"Device Generation ID: {message.SystemProperties?.ConnectionDeviceGenerationId ?? "N/A"}");
-                    Console.WriteLine($"Auth Method: {message.SystemProperties?.ConnectionAuthMethod ?? "N/A"}");
-                    Console.WriteLine("Body:");
-                    Console.WriteLine(JsonSerializer.Serialize(message.Body, indentedJson));
-                    Console.WriteLine();
+                    try
+                    {
+                        var enqueuedTime = DateTime.SpecifyKind(message.EnqueuedTimeUtc, DateTimeKind.Utc);
+
+                        insertCommand.Parameters["enqueued_time"].Value = enqueuedTime;
+                        insertCommand.Parameters["iothub_creation_time"].Value = GetIoTHubCreationTime(message) ?? (object)DBNull.Value;
+                        insertCommand.Parameters["connection_device_id"].Value = message.SystemProperties?.ConnectionDeviceId ?? (object)DBNull.Value;
+                        insertCommand.Parameters["body"].Value = message.Body.GetRawText();
+                        insertCommand.Parameters["properties"].Value = message.Properties is null
+                            ? (object)DBNull.Value
+                            : JsonSerializer.Serialize(message.Properties);
+                        insertCommand.Parameters["system_properties"].Value = message.SystemProperties is null
+                            ? (object)DBNull.Value
+                            : JsonSerializer.Serialize(message.SystemProperties);
+
+                        await insertCommand.ExecuteNonQueryAsync();
+                        insertedCount++;
+
+                        if (insertedCount % 500 == 0)
+                        {
+                            Console.WriteLine($"Progress: inserted {insertedCount} messages so far...");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error inserting message into database: {ex.Message}");
+                        dbErrorCount++;
+                        continue;
+                    }
 
                     success = true;
                     newCount++;
@@ -161,6 +231,8 @@ try
 
     Console.WriteLine("\n=== Summary ===");
     Console.WriteLine($"Retrieved: {newCount} message(s)");
+    Console.WriteLine($"Inserted: {insertedCount} message(s)");
+    Console.WriteLine($"Database errors: {dbErrorCount}");
     Console.WriteLine($"Errors: {errorCount}");
     Console.WriteLine($"Most recent blob: {maxBlobTime:yyyy-MM-dd HH:mm:ss} UTC");
     Console.WriteLine($"\nCompleted at {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
@@ -216,6 +288,25 @@ static DateTime ExtractDateTimeFromPath(string path, string folderPrefix)
     return DateTime.MinValue;
 }
 
+static DateTime? GetIoTHubCreationTime(IoTHubMessage message)
+{
+    if (string.IsNullOrWhiteSpace(message.Properties?.IoTHubCreationTimeUtc))
+    {
+        return null;
+    }
+
+    if (DateTime.TryParse(
+        message.Properties.IoTHubCreationTimeUtc,
+        CultureInfo.InvariantCulture,
+        DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
+        out var creationTime))
+    {
+        return creationTime;
+    }
+
+    return null;
+}
+
 public class IoTHubMessage
 {
     public DateTime EnqueuedTimeUtc { get; set; }
@@ -238,12 +329,6 @@ public class SystemProperties
     [JsonPropertyName("connectionDeviceId")]
     public string? ConnectionDeviceId { get; set; }
 
-    [JsonPropertyName("connectionAuthMethod")]
-    public string? ConnectionAuthMethod { get; set; }
-
     [JsonPropertyName("connectionDeviceGenerationId")]
     public string? ConnectionDeviceGenerationId { get; set; }
-
-    [JsonPropertyName("enqueuedTime")]
-    public string? EnqueuedTime { get; set; }
 }
