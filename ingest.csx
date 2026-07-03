@@ -172,15 +172,11 @@ try
 
                         insertCommand.Parameters["enqueued_time"].Value = enqueuedTime;
                         insertCommand.Parameters["iothub_creation_time"].Value = GetIotHubCreationTime(message) ?? (object)DBNull.Value;
-                        insertCommand.Parameters["iothub_message_schema"].Value = message.Properties?.IotHubMessageSchema ?? (object)DBNull.Value;
-                        insertCommand.Parameters["connection_device_id"].Value = message.SystemProperties?.ConnectionDeviceId ?? (object)DBNull.Value;
-                        insertCommand.Parameters["body"].Value = message.Body.GetRawText();
-                        insertCommand.Parameters["properties"].Value = message.Properties is null
-                            ? (object)DBNull.Value
-                            : JsonSerializer.Serialize(message.Properties);
-                        insertCommand.Parameters["system_properties"].Value = message.SystemProperties is null
-                            ? (object)DBNull.Value
-                            : JsonSerializer.Serialize(message.SystemProperties);
+                        insertCommand.Parameters["iothub_message_schema"].Value = GetIotHubMessageSchema(message) ?? (object)DBNull.Value;
+                        insertCommand.Parameters["connection_device_id"].Value = GetConnectionDeviceId(message) ?? (object)DBNull.Value;
+                        insertCommand.Parameters["body"].Value = GetJsonOrDbNull(message.Body);
+                        insertCommand.Parameters["properties"].Value = GetJsonOrDbNull(message.Properties);
+                        insertCommand.Parameters["system_properties"].Value = GetJsonOrDbNull(message.SystemProperties);
 
                         await insertCommand.ExecuteNonQueryAsync();
                         insertedCount++;
@@ -294,13 +290,19 @@ static DateTime ExtractDateTimeFromPath(string path, string folderPrefix)
 
 static DateTime? GetIotHubCreationTime(IotHubMessage message)
 {
-    if (string.IsNullOrWhiteSpace(message.Properties?.IotHubCreationTimeUtc))
+    if (!TryGetPropertyIgnoreCase(message.Properties, "iothub-creation-time-utc", out var creationTimeElement))
+    {
+        return null;
+    }
+
+    var creationTimeRaw = creationTimeElement.GetString();
+    if (string.IsNullOrWhiteSpace(creationTimeRaw))
     {
         return null;
     }
 
     if (DateTime.TryParse(
-        message.Properties.IotHubCreationTimeUtc,
+        creationTimeRaw,
         CultureInfo.InvariantCulture,
         DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
         out var creationTime))
@@ -311,28 +313,55 @@ static DateTime? GetIotHubCreationTime(IotHubMessage message)
     return null;
 }
 
+static string? GetIotHubMessageSchema(IotHubMessage message)
+{
+    if (!TryGetPropertyIgnoreCase(message.Properties, "iothub-message-schema", out var schemaElement))
+    {
+        return null;
+    }
+
+    return schemaElement.GetString();
+}
+
+static string? GetConnectionDeviceId(IotHubMessage message)
+{
+    if (!TryGetPropertyIgnoreCase(message.SystemProperties, "connectionDeviceId", out var deviceIdElement))
+    {
+        return null;
+    }
+
+    return deviceIdElement.GetString();
+}
+
+static object GetJsonOrDbNull(JsonElement element)
+{
+    if (element.ValueKind == JsonValueKind.Undefined)
+    {
+        return DBNull.Value;
+    }
+
+    return element.GetRawText();
+}
+
+static bool TryGetPropertyIgnoreCase(JsonElement jsonObject, string propertyName, out JsonElement value)
+{
+    foreach (var property in jsonObject.EnumerateObject())
+    {
+        if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+        {
+            value = property.Value;
+            return true;
+        }
+    }
+
+    value = default;
+    return false;
+}
+
 public class IotHubMessage
 {
     public DateTime EnqueuedTimeUtc { get; set; }
-    public Properties? Properties { get; set; }
-    public SystemProperties? SystemProperties { get; set; }
+    public JsonElement Properties { get; set; }
+    public JsonElement SystemProperties { get; set; }
     public JsonElement Body { get; set; }
-}
-
-public class Properties
-{
-    [JsonPropertyName("iothub-message-schema")]
-    public string? IotHubMessageSchema { get; set; }
-
-    [JsonPropertyName("iothub-creation-time-utc")]
-    public string? IotHubCreationTimeUtc { get; set; }
-}
-
-public class SystemProperties
-{
-    [JsonPropertyName("connectionDeviceId")]
-    public string? ConnectionDeviceId { get; set; }
-
-    [JsonPropertyName("connectionDeviceGenerationId")]
-    public string? ConnectionDeviceGenerationId { get; set; }
 }
